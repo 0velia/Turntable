@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Turntable – 3D model viewer and converter</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700&display=swap">
+<style>
+:root{--bg:#f3f4f6;--panel:#fbfbfc;--ink:#15181d;--muted:#5d6672;--line:#d9dde3;--accent:#2f46d8;--accent-ink:#fff;--stage:#e6e9ee;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14161a;--panel:#1a1d22;--ink:#eceef2;--muted:#9aa3af;--line:#2b3038;--accent:#7e90ff;--accent-ink:#0d1020;--stage:#1d2026}}
+:root[data-theme="dark"]{--bg:#14161a;--panel:#1a1d22;--ink:#eceef2;--muted:#9aa3af;--line:#2b3038;--accent:#7e90ff;--accent-ink:#0d1020;--stage:#1d2026}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:15px/1.5 "Schibsted Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif}
+main{display:grid;grid-template-columns:304px 1fr;height:100%}
+aside{background:var(--panel);border-right:1px solid var(--line);padding:22px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:22px}
+h1{font-size:22px;letter-spacing:-.02em;margin:0;font-weight:700}
+h1 small{display:block;font-size:13px;font-weight:400;color:var(--muted);letter-spacing:0;margin-top:2px}
+h2{font-size:13px;font-weight:700;margin:0 0 8px;color:var(--muted)}
+button,select{font:inherit;color:inherit}
+.btn{width:100%;padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:transparent;cursor:pointer;font-weight:500}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn:focus-visible,.seg input:focus-visible+span,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:8px}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-bottom:10px}
+.seg label{position:relative}
+.seg input{position:absolute;opacity:0;inset:0;cursor:pointer}
+.seg span{display:block;text-align:center;padding:7px 0;border:1px solid var(--line);border-radius:6px;font-size:13px;font-weight:500}
+.seg input:checked+span{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.opt{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer}
+.opt input{accent-color:var(--accent);width:16px;height:16px}
+select{width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--panel);margin-top:6px}
+dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px}
+dt{color:var(--muted)}dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note{font-size:12.5px;color:var(--muted);margin:8px 0 0}
+#msg{min-height:1.4em;font-size:13px;margin:0}
+#msg.err{color:#c4372b}
+@media (prefers-color-scheme:dark){#msg.err{color:#ff8a7d}}
+#view{position:relative;background:var(--stage);min-height:0;touch-action:none}
+#view canvas{display:block;width:100%;height:100%}
+#empty{position:absolute;inset:0;display:grid;place-content:center;text-align:center;pointer-events:none;color:var(--muted);padding:24px}
+#empty b{display:block;font-size:20px;color:var(--ink);margin-bottom:4px;letter-spacing:-.01em}
+#view.drag{outline:3px dashed var(--accent);outline-offset:-12px}
+@media (max-width:760px){main{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto}#view{order:-1}aside{max-height:48vh;border-right:0;border-top:1px solid var(--line)}}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<main>
+<aside>
+  <h1>Turntable<small>View a 3D model, then convert it</small></h1>
+
+  <section>
+    <h2>Open a model</h2>
+    <input id="file" type="file" multiple accept=".glb,.gltf,.obj,.stl,.ply,.dae,.fbx,.3ds,.3mf,.amf,.wrl,.kmz,.vtk,.png,.jpg,.jpeg,.webp,.bmp,.tga,.bin" hidden>
+    <div class="row"><button class="btn primary" id="pick">Choose file</button><button class="btn" id="sample">Try sample</button></div>
+    <p class="note">Or drop a model file onto the viewer. Opens GLB, glTF, OBJ, STL, PLY, DAE, FBX, 3DS, 3MF, AMF, WRL, KMZ and VTK. For models with separate texture files (or a glTF with a .bin), select or drop the model and its textures together. Files stay in your browser.</p>
+    <p id="msg" role="status" aria-live="polite"></p>
+  </section>
+
+  <section>
+    <h2>View</h2>
+    <select id="shade" aria-label="Shading mode" style="margin:0 0 8px"><option value="solid">Shading: solid</option><option value="wire">Shading: wireframe</option><option value="both">Shading: solid + wireframe</option></select>
+    <div class="row" style="align-items:center;margin-bottom:6px"><label for="wcol" style="flex:1;font-size:13px">Wireframe color</label><input type="color" id="wcol" value="#ffb000" style="width:48px;height:30px;padding:0;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer"></div>
+    <div class="row" style="align-items:center;margin-bottom:8px"><label for="wop" style="flex:1;font-size:13px">Wireframe opacity</label><input type="range" id="wop" min="10" max="100" value="90" style="width:110px;accent-color:var(--accent)"></div>
+    <label class="opt"><input type="checkbox" id="grid" checked> Floor grid</label>
+    <label class="opt"><input type="checkbox" id="spin"> Auto-rotate</label>
+    <select id="bg" aria-label="Backdrop"><option value="auto">Backdrop: match theme</option><option value="light">Backdrop: studio grey</option><option value="dark">Backdrop: graphite</option></select>
+    <button class="btn" id="reset" style="margin-top:10px">Reset camera</button>
+  </section>
+
+  <section>
+    <h2>Model</h2>
+    <dl><dt>Name</dt><dd id="i-name">–</dd><dt>Format</dt><dd id="i-fmt">–</dd><dt>Vertices</dt><dd id="i-v">–</dd><dt>Triangles</dt><dd id="i-t">–</dd><dt>Size</dt><dd id="i-s">–</dd></dl>
+  </section>
+
+  <section>
+    <h2>Convert to</h2>
+    <div class="seg" role="radiogroup" aria-label="Output format">
+      <label><input type="radio" name="fmt" value="glb" checked><span>GLB</span></label>
+      <label><input type="radio" name="fmt" value="gltf"><span>glTF</span></label>
+      <label><input type="radio" name="fmt" value="obj"><span>OBJ</span></label>
+      <label><input type="radio" name="fmt" value="stl"><span>STL</span></label>
+      <label><input type="radio" name="fmt" value="ply"><span>PLY</span></label>
+      <label><input type="radio" name="fmt" value="dae"><span>DAE</span></label>
+    </div>
+    <button class="btn primary" id="convert" disabled>Convert and save</button>
+    <p class="note" id="dlnote">The converted file is saved inside a .zip, because this page can only save a limited set of file types. Unzip it to get the model.</p>
+  </section>
+</aside>
+
+<div id="view">
+  <div id="empty"><b>Drop a model here</b>GLB, glTF, OBJ, STL, PLY, DAE, FBX, 3DS, 3MF, AMF, WRL, KMZ, VTK</div>
+</div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/PLYLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/ColladaLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/TGALoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/TDSLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/3MFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/AMFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/KMZLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/VTKLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/chevrotain.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/VRMLLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/STLExporter.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/PLYExporter.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/ColladaExporter.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const view = $('#view'), msg = $('#msg');
+const say = (t, err) => { msg.textContent = t || ''; msg.className = err ? 'err' : ''; };
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 200);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.autoRotateSpeed = 1.6;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x6b7480, 0.95));
+const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(4, 7, 5); scene.add(key);
+const fill = new THREE.DirectionalLight(0xffffff, 0.35); fill.position.set(-5, 2, -4); scene.add(fill);
+let grid = null;
+function setGrid(a, b) {
+  const vis = grid ? grid.visible : true;
+  if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
+  grid = new THREE.GridHelper(12, 24, a, b);
+  grid.material.transparent = true; grid.material.opacity = 0.75; grid.visible = vis; scene.add(grid);
+}
+setGrid(0xffffff, 0xe4e7ec);
+const holder = new THREE.Group(); scene.add(holder);
+const overlay = new THREE.Group(); holder.add(overlay);
+const wireMat = new THREE.LineBasicMaterial({ color: 0xffb000, transparent: true, opacity: 0.9 });
+function syncWire() { wireMat.color.set($('#wcol').value); wireMat.opacity = $('#wop').value / 100; }
+$('#wcol').oninput = $('#wop').oninput = syncWire;
+let model = null, meta = { base: 'model', ext: '' };
+
+function setBackdrop() {
+  const v = $('#bg').value;
+  const dark = v === 'dark' || (v === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const c = dark ? '#1d2026' : '#939aa5';
+  setGrid(dark ? 0x4b525e : 0xffffff, dark ? 0x2e333b : 0xe4e7ec);
+  scene.background = new THREE.Color(c); view.style.background = c;
+}
+$('#bg').onchange = setBackdrop;
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', setBackdrop);
+setBackdrop();
+
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  if (!w || !h) return;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(view); resize();
+
+(function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+
+function resetCamera() {
+  const h = holder.userData.h || 2;
+  controls.target.set(0, h / 2, 0);
+  camera.position.set(4.2, h / 2 + 2.6, 5.4);
+  controls.update();
+}
+$('#reset').onclick = resetCamera;
+
+function applyWire() {
+  if (!model) return;
+  const mode = $('#shade').value;
+  while (overlay.children.length) { const c = overlay.children.pop(); c.geometry.dispose(); }
+  model.traverse(o => { if (o.isMesh) [].concat(o.material).forEach(m => {
+    m.wireframe = mode === 'wire';
+    m.polygonOffset = mode === 'both'; m.polygonOffsetFactor = 1; m.polygonOffsetUnits = 1;
+    m.needsUpdate = true;
+  }); });
+  if (mode !== 'both') return;
+  holder.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(holder.matrixWorld).invert();
+  model.traverse(o => {
+    if (!o.isMesh || !o.geometry.attributes.position) return;
+    const w = new THREE.LineSegments(new THREE.WireframeGeometry(o.geometry), wireMat);
+    w.matrixAutoUpdate = false; w.matrix.multiplyMatrices(inv, o.matrixWorld); w.matrixWorldNeedsUpdate = true;
+    overlay.add(w);
+  });
+}
+$('#shade').onchange = applyWire;
+$('#grid').onchange = e => { grid.visible = e.target.checked; };
+$('#spin').onchange = e => { controls.autoRotate = e.target.checked; };
+
+function stats(obj) {
+  let v = 0, t = 0;
+  obj.traverse(o => {
+    if (!o.isMesh || !o.geometry) return;
+    const p = o.geometry.attributes.position; if (!p) return;
+    v += p.count; t += o.geometry.index ? o.geometry.index.count / 3 : p.count / 3;
+  });
+  return { v, t };
+}
+
+function setModel(obj, name, ext) {
+  if (model) {
+    holder.remove(model);
+    model.traverse(o => { if (o.isMesh) { o.geometry.dispose(); [].concat(o.material).forEach(m => m.dispose()); } });
+  }
+  model = obj; holder.add(obj);
+  meta = { base: name.replace(/\.[^.]+$/, '') || 'model', ext };
+  holder.scale.setScalar(1); holder.position.set(0, 0, 0); holder.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj);
+  if (box.isEmpty()) { say('That file loaded but contains no geometry.', true); return; }
+  const size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+  const s = 4 / Math.max(size.x, size.y, size.z, 1e-9);
+  holder.scale.setScalar(s);
+  holder.position.set(-c.x * s, -box.min.y * s, -c.z * s);
+  holder.userData.h = size.y * s;
+  applyWire(); resetCamera();
+  const st = stats(obj), f = n => n.toLocaleString('en-US'), g = n => +n.toPrecision(3);
+  $('#i-name').textContent = name; $('#i-name').title = name;
+  $('#i-fmt').textContent = ext.toUpperCase();
+  $('#i-v').textContent = f(st.v); $('#i-t').textContent = f(Math.round(st.t));
+  $('#i-s').textContent = `${g(size.x)} × ${g(size.y)} × ${g(size.z)}`;
+  $('#empty').style.display = 'none';
+  $('#convert').disabled = !canSave;
+  say('Loaded ' + name + '.');
+}
+
+const stdMat = geo => new THREE.MeshStandardMaterial({
+  color: geo.attributes.color ? 0xffffff : 0xb9c1cd, vertexColors: !!geo.attributes.color,
+  roughness: 0.55, metalness: 0.1, side: THREE.DoubleSide
+});
+function fromGeometry(geo) {
+  if (!geo.attributes.normal) geo.computeVertexNormals();
+  return new THREE.Mesh(geo, stdMat(geo));
+}
+
+/* Fallback 3MF reader: handles the production extension (components stored in other .model files), base colors and color groups. */
+function parse3mf(buf) {
+  const z = fflate.unzipSync(new Uint8Array(buf)), dec = new TextDecoder(), models = {};
+  const xml = p => new DOMParser().parseFromString(dec.decode(z[p]), 'application/xml');
+  const tags = (n, t) => Array.from(n.getElementsByTagName(t));
+  const clean = s => (s || '').replace(/^\//, '');
+  let main = null;
+  const relKey = Object.keys(z).find(k => /^_rels\/\.rels$/i.test(k));
+  if (relKey) {
+    const r = tags(xml(relKey), 'Relationship').find(x => /3dmodel$/i.test(x.getAttribute('Type') || ''));
+    if (r) main = clean(r.getAttribute('Target'));
+  }
+  if (!main || !z[main]) main = Object.keys(z).find(k => /3dmodel\.model$/i.test(k)) || Object.keys(z).find(k => /\.model$/i.test(k));
+  if (!main) throw new Error('no 3D model part found in the 3MF');
+  const load = path => {
+    if (models[path]) return models[path];
+    if (!z[path]) throw new Error('missing model part ' + path);
+    const d = xml(path), m = models[path] = { obj: {}, mat: {} };
+    tags(d, 'basematerials').forEach(b => { m.mat[b.getAttribute('id')] = tags(b, 'base').map(x => x.getAttribute('displaycolor') || '#cccccc'); });
+    tags(d, 'colorgroup').forEach(g => { m.mat[g.getAttribute('id')] = tags(g, 'color').map(x => x.getAttribute('color') || '#cccccc'); });
+    tags(d, 'object').forEach(o => {
+      const e = { pid: o.getAttribute('pid'), pindex: o.getAttribute('pindex') }, me = tags(o, 'mesh')[0];
+      if (me) {
+        const vs = tags(me, 'vertex'), ts = tags(me, 'triangle');
+        e.v = new Float32Array(vs.length * 3); e.t = new Uint32Array(ts.length * 3); e.tp = [];
+        vs.forEach((x, i) => { e.v[i * 3] = +x.getAttribute('x'); e.v[i * 3 + 1] = +x.getAttribute('y'); e.v[i * 3 + 2] = +x.getAttribute('z'); });
+        ts.forEach((x, i) => {
+          e.t[i * 3] = +x.getAttribute('v1'); e.t[i * 3 + 1] = +x.getAttribute('v2'); e.t[i * 3 + 2] = +x.getAttribute('v3');
+          const p = x.getAttribute('pid'), p1 = x.getAttribute('p1');
+          if (p !== null || p1 !== null) e.tp[i] = [p, p1];
+        });
+      } else {
+        e.comps = tags(o, 'component').map(c => ({ id: c.getAttribute('objectid'), path: clean(c.getAttribute('p:path')) || path, t: c.getAttribute('transform') }));
+      }
+      m.obj[o.getAttribute('id')] = e;
+    });
+    m.build = tags(d, 'item').map(i => ({ id: i.getAttribute('objectid'), path: clean(i.getAttribute('p:path')) || path, t: i.getAttribute('transform') }));
+    return m;
+  };
+  const applyT = (o, t) => {
+    if (!t) return;
+    const n = t.trim().split(/\s+/).map(Number);
+    if (n.length === 12) o.applyMatrix4(new THREE.Matrix4().set(n[0], n[3], n[6], n[9], n[1], n[4], n[7], n[10], n[2], n[5], n[8], n[11], 0, 0, 0, 1));
+  };
+  const color = (m, pid, idx) => { const a = m.mat[pid], c = a && a[idx]; return c ? new THREE.Color(c.slice(0, 7)) : null; };
+  const geoFor = (m, e) => {
+    if (e.geo) return e.geo;
+    const nT = e.t.length / 3, cols = new Array(nT);
+    let any = false;
+    for (let i = 0; i < nT; i++) {
+      const tp = e.tp[i] || [], pid = tp[0] !== null && tp[0] !== undefined ? tp[0] : e.pid, idx = tp[1] !== null && tp[1] !== undefined ? +tp[1] : +(e.pindex || 0);
+      cols[i] = pid !== null ? color(m, pid, idx) : null;
+      if (cols[i]) any = true;
+    }
+    const g = new THREE.BufferGeometry();
+    if (!any) {
+      g.setAttribute('position', new THREE.BufferAttribute(e.v, 3)); g.setIndex(new THREE.BufferAttribute(e.t, 1));
+    } else {
+      const pos = new Float32Array(nT * 9), col = new Float32Array(nT * 9), grey = new THREE.Color(0xb9c1cd);
+      for (let i = 0; i < nT; i++) {
+        const c = cols[i] || grey;
+        for (let k = 0; k < 3; k++) {
+          const vi = e.t[i * 3 + k] * 3;
+          for (let a = 0; a < 3; a++) pos[i * 9 + k * 3 + a] = e.v[vi + a];
+          col[i * 9 + k * 3] = c.r; col[i * 9 + k * 3 + 1] = c.g; col[i * 9 + k * 3 + 2] = c.b;
+        }
+      }
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    }
+    g.computeVertexNormals();
+    return (e.geo = g);
+  };
+  const buildObj = (path, id) => {
+    const m = load(path), e = m.obj[id];
+    if (!e) return new THREE.Group();
+    if (e.v) {
+      const g = geoFor(m, e);
+      return new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: g.attributes.color ? 0xffffff : 0xb9c1cd, vertexColors: !!g.attributes.color, roughness: 0.55, metalness: 0.1, side: THREE.DoubleSide }));
+    }
+    const grp = new THREE.Group();
+    (e.comps || []).forEach(c => { const ch = buildObj(c.path, c.id); applyT(ch, c.t); grp.add(ch); });
+    return grp;
+  };
+  const root = new THREE.Group();
+  load(main).build.forEach(i => { const ch = buildObj(i.path, i.id); applyT(ch, i.t); root.add(ch); });
+  return root;
+}
+
+const MODEL_EXTS = ['glb', 'gltf', 'obj', 'stl', 'ply', 'dae', 'fbx', '3ds', '3mf', 'amf', 'wrl', 'kmz', 'vtk'];
+let blobUrls = [];
+const baseName = u => { let s = u; try { s = decodeURIComponent(u); } catch (e) {} return s.split(/[?#]/)[0].split(/[\\/]/).pop().toLowerCase(); };
+function loadFiles(list) {
+  const files = [...list];
+  if (!files.length) return;
+  const main = files.find(f => MODEL_EXTS.includes(f.name.split('.').pop().toLowerCase()));
+  if (!main) { say('No model file in that selection. Include a GLB, glTF, OBJ, STL, PLY, DAE, FBX, 3DS, 3MF, AMF, WRL, KMZ or VTK file.', true); return; }
+  blobUrls.forEach(u => URL.revokeObjectURL(u)); blobUrls = [];
+  const map = {}, missing = new Set();
+  files.forEach(f => { if (f !== main) { const u = URL.createObjectURL(f); blobUrls.push(u); map[f.name.toLowerCase()] = u; } });
+  const mgr = new THREE.LoadingManager();
+  mgr.setURLModifier(url => (url.startsWith('blob:') || url.startsWith('data:')) ? url : (map[baseName(url)] || url));
+  if (THREE.TGALoader) mgr.addHandler(/\.tga$/i, new THREE.TGALoader(mgr));
+  mgr.onError = u => missing.add(baseName(u));
+  mgr.onLoad = () => { if (missing.size) say('Loaded, but these textures weren’t found: ' + [...missing].join(', ') + '. Select them together with the model.', true); };
+  loadFile(main, mgr);
+}
+function loadFile(file, mgr) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['glb', 'gltf', 'obj', 'stl', 'ply', 'dae', 'fbx', '3ds', '3mf', 'amf', 'wrl', 'kmz', 'vtk'].includes(ext)) { say('Unsupported file type “.' + ext + '”. Supported: GLB, glTF, OBJ, STL, PLY, DAE, FBX, 3DS, 3MF, AMF, WRL, KMZ, VTK.', true); return; }
+  say('Reading ' + file.name + '…');
+  const r = new FileReader();
+  r.onerror = () => say('Couldn’t read that file.', true);
+  r.onload = () => {
+    try {
+      const d = r.result;
+      if (ext === 'glb' || ext === 'gltf') {
+        new THREE.GLTFLoader(mgr).parse(d, '', g => setModel(g.scene, file.name, ext),
+          e => say('Couldn’t parse the glTF. If it points to separate .bin or texture files, export a single .glb instead.', true));
+      } else if (ext === 'obj') {
+        const o = new THREE.OBJLoader().parse(d);
+        o.traverse(m => { if (m.isMesh) { if (!m.geometry.attributes.normal) m.geometry.computeVertexNormals(); m.material = stdMat(m.geometry); } });
+        setModel(o, file.name, ext);
+      } else if (ext === 'dae') {
+        const c = new THREE.ColladaLoader(mgr).parse(d, '');
+        if (!c || !c.scene) throw new Error('no scene found in the Collada file');
+        setModel(c.scene, file.name, ext);
+      } else if (ext === 'fbx') {
+        setModel(new THREE.FBXLoader(mgr).parse(d, ''), file.name, ext);
+      } else if (ext === '3ds') {
+        setModel(new THREE.TDSLoader(mgr).parse(d, ''), file.name, ext);
+      } else if (ext === '3mf') {
+        let grp;
+        try { grp = new THREE.ThreeMFLoader().parse(d); } catch (err) { grp = parse3mf(d); }
+        setModel(grp, file.name, ext);
+      } else if (ext === 'amf') {
+        setModel(new THREE.AMFLoader().parse(d), file.name, ext);
+      } else if (ext === 'wrl') {
+        setModel(new THREE.VRMLLoader(mgr).parse(d, ''), file.name, ext);
+      } else if (ext === 'kmz') {
+        setModel(new THREE.KMZLoader(mgr).parse(d).scene, file.name, ext);
+      } else if (ext === 'vtk') {
+        setModel(fromGeometry(new THREE.VTKLoader().parse(d)), file.name, ext);
+      } else if (ext === 'stl') {
+        setModel(fromGeometry(new THREE.STLLoader().parse(d)), file.name, ext);
+      } else {
+        setModel(fromGeometry(new THREE.PLYLoader().parse(d)), file.name, ext);
+      }
+    } catch (e) { say('Couldn’t open that file: ' + (e.message || 'unknown error'), true); }
+  };
+  if (ext === 'obj' || ext === 'dae' || ext === 'wrl') r.readAsText(file); else r.readAsArrayBuffer(file);
+}
+
+$('#pick').onclick = () => $('#file').click();
+$('#file').onchange = e => { loadFiles(e.target.files); e.target.value = ''; };
+['dragenter', 'dragover'].forEach(t => view.addEventListener(t, e => { e.preventDefault(); view.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(t => view.addEventListener(t, e => { e.preventDefault(); view.classList.remove('drag'); }));
+view.addEventListener('drop', e => loadFiles(e.dataTransfer.files));
+$('#sample').onclick = () => {
+  const m = new THREE.Mesh(new THREE.TorusKnotGeometry(1, 0.34, 240, 36), new THREE.MeshStandardMaterial({ color: 0x4a5fe0, roughness: 0.35, metalness: 0.2 }));
+  setModel(m, 'torus-knot.sample', 'obj'); meta.ext = 'sample';
+  $('#i-fmt').textContent = 'Generated';
+};
+
+/* ---------- conversion ---------- */
+let canSave = false, downloads = null;
+(async () => {
+  try { downloads = window.claude && await window.claude.use('downloads'); } catch (e) { downloads = null; }
+  canSave = true;
+  if (!downloads) $('#dlnote').textContent = 'Converted files download directly in their own format. A DAE with textures downloads as a .zip so the images stay with it.';
+  $('#convert').disabled = !model;
+})();
+
+/* Compact Collada writer for dense meshes: streams numbers in chunks into Blobs instead of one giant string. */
+async function colladaLite(root) {
+  const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const blobs = [], I = [], E = [], M = [], texFiles = [], geoIds = new Map(), matIds = new Map();
+  let P = [], nid = 0;
+  const flush = () => { if (P.length) { blobs.push(new Blob(P)); P = []; } };
+  const pushNums = (n, get) => {
+    for (let i = 0; i < n; i += 40000) {
+      let s = ''; const e = Math.min(n, i + 40000);
+      for (let j = i; j < e; j++) s += get(j) + ' ';
+      P.push(s);
+    }
+    flush();
+  };
+  const toPng = img => new Promise((res, rej) => {
+    const c = document.createElement('canvas');
+    c.width = img.width || img.videoWidth; c.height = img.height || img.videoHeight;
+    c.getContext('2d').drawImage(img, 0, 0);
+    c.toBlob(b => b ? res(b) : rej(new Error('png')), 'image/png');
+  });
+  const matId = async m => {
+    if (matIds.has(m)) return matIds.get(m);
+    const id = 'M' + matIds.size; matIds.set(m, id);
+    const col = m.color || { r: 0.8, g: 0.8, b: 0.8 };
+    let tex = '', diffuse = `<color>${col.r} ${col.g} ${col.b} 1</color>`;
+    if (m.map && m.map.image) {
+      try {
+        const blob = await toPng(m.map.image), k = texFiles.length;
+        texFiles.push({ directory: 'textures/', name: 'img' + k, ext: 'png', data: blob });
+        I.push(`<image id="I${k}"><init_from>textures/img${k}.png</init_from></image>`);
+        tex = `<newparam sid="${id}-s"><surface type="2D"><init_from>I${k}</init_from></surface></newparam><newparam sid="${id}-p"><sampler2D><source>${id}-s</source></sampler2D></newparam>`;
+        diffuse = `<texture texture="${id}-p" texcoord="TEXCOORD"/>`;
+      } catch (e) { /* keep plain color */ }
+    }
+    E.push(`<effect id="${id}-fx"><profile_COMMON>${tex}<technique sid="common"><phong><diffuse>${diffuse}</diffuse></phong></technique></profile_COMMON></effect>`);
+    M.push(`<material id="${id}" name="${esc(m.name)}"><instance_effect url="#${id}-fx"/></material>`);
+    return id;
+  };
+  const addGeo = g => {
+    if (geoIds.has(g)) return geoIds.get(g);
+    const id = 'G' + geoIds.size; geoIds.set(g, id);
+    const src = (name, attr, size, params) => {
+      const n = attr.count * size;
+      const a = (!attr.isInterleavedBufferAttribute && attr.array instanceof Float32Array) ? attr.array : null;
+      P.push(`<source id="${id}-${name}"><float_array id="${id}-${name}-a" count="${n}">`);
+      pushNums(n, a ? j => +a[j].toPrecision(7) : j => +attr['get' + 'XYZW'[j % size]]((j / size) | 0).toPrecision(7));
+      P.push(`</float_array><technique_common><accessor source="#${id}-${name}-a" count="${attr.count}" stride="${size}">${params.map(p => `<param name="${p}" type="float"/>`).join('')}</accessor></technique_common></source>`);
+    };
+    P.push(`<geometry id="${id}"><mesh>`);
+    src('p', g.attributes.position, 3, ['X', 'Y', 'Z']);
+    let inputs = `<input semantic="VERTEX" source="#${id}-v" offset="0"/>`;
+    if (g.attributes.normal) { src('n', g.attributes.normal, 3, ['X', 'Y', 'Z']); inputs += `<input semantic="NORMAL" source="#${id}-n" offset="0"/>`; }
+    if (g.attributes.uv) { src('t', g.attributes.uv, 2, ['S', 'T']); inputs += `<input semantic="TEXCOORD" source="#${id}-t" offset="0" set="0"/>`; }
+    P.push(`<vertices id="${id}-v"><input semantic="POSITION" source="#${id}-p"/></vertices>`);
+    const cnt = g.index ? g.index.count : g.attributes.position.count;
+    const groups = g.groups && g.groups.length ? g.groups : [{ start: 0, count: cnt, materialIndex: 0 }];
+    groups.forEach(gr => {
+      const n = Math.min(gr.count, cnt - gr.start), ia = g.index && g.index.array;
+      P.push(`<triangles material="m${gr.materialIndex}" count="${Math.floor(n / 3)}">${inputs}<p>`);
+      pushNums(n, ia ? j => ia[gr.start + j] : j => gr.start + j);
+      P.push('</p></triangles>');
+    });
+    P.push('</mesh></geometry>'); flush();
+    return id;
+  };
+  const node = async o => {
+    o.updateMatrix();
+    const e = o.matrix.elements, mx = [];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) mx.push(e[c * 4 + r]);
+    let s = `<node id="N${nid++}" name="${esc(o.name)}"><matrix>${mx.join(' ')}</matrix>`;
+    if (o.isMesh && o.geometry && o.geometry.attributes.position) {
+      const gid = addGeo(o.geometry), arr = [].concat(o.material);
+      let b = '';
+      for (let i = 0; i < arr.length; i++) b += `<instance_material symbol="m${i}" target="#${await matId(arr[i])}"/>`;
+      s += `<instance_geometry url="#${gid}"><bind_material><technique_common>${b}</technique_common></bind_material></instance_geometry>`;
+    }
+    for (const c of o.children) s += await node(c);
+    return s + '</node>';
+  };
+  const nodes = await node(root);
+  const lib = (tag, arr) => arr.length ? `<${tag}>${arr.join('')}</${tag}>` : '';
+  const now = new Date().toISOString();
+  const head = `<?xml version="1.0" encoding="UTF-8"?><COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1"><asset><created>${now}</created><modified>${now}</modified><unit name="meter" meter="1"/><up_axis>Y_UP</up_axis></asset>${lib('library_images', I)}${lib('library_effects', E)}${lib('library_materials', M)}<library_geometries>`;
+  const tail = `</library_geometries><library_visual_scenes><visual_scene id="Scene" name="Scene">${nodes}</visual_scene></library_visual_scenes><scene><instance_visual_scene url="#Scene"/></scene></COLLADA>`;
+  flush();
+  return { data: new Blob([head, ...blobs, tail]), textures: texFiles };
+}
+
+function saveLocal(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+const once = fn => { let d = false; return (...a) => { if (!d) { d = true; fn(...a); } }; };
+function exportAs(fmt, obj) {
+  return new Promise((resolve, reject) => {
+    try {
+      const done = once(resolve);
+      if (fmt === 'glb' || fmt === 'gltf') {
+        new THREE.GLTFExporter().parse(obj, r => done(fmt === 'glb' ? r : JSON.stringify(r, null, 2)), { binary: fmt === 'glb' });
+      } else if (fmt === 'dae') {
+        (async () => {
+          try {
+            if (stats(obj).v > 400000) throw new RangeError('dense mesh');
+            done(new THREE.ColladaExporter().parse(obj, undefined, { textureDirectory: 'textures' }));
+          } catch (e) {
+            if (!(e instanceof RangeError)) { reject(e); return; }
+            say('Dense mesh: using the compact DAE writer…');
+            colladaLite(obj).then(done, reject);
+          }
+        })();
+      } else if (fmt === 'obj') {
+        done(new THREE.OBJExporter().parse(obj));
+      } else if (fmt === 'stl') {
+        const r = new THREE.STLExporter().parse(obj, { binary: true });
+        done(r.buffer ? r.buffer : r);
+      } else {
+        const r = new THREE.PLYExporter().parse(obj, done, { binary: true });
+        if (r !== undefined) done(r);
+      }
+    } catch (e) { reject(e); }
+  });
+}
+
+$('#convert').onclick = async () => {
+  if (!model) return;
+  const fmt = document.querySelector('input[name=fmt]:checked').value;
+  const btn = $('#convert'); btn.disabled = true; say('Converting to ' + fmt.toUpperCase() + '…');
+  try {
+    model.updateMatrixWorld(true);
+    const data = await exportAs(fmt, model.clone(true));
+    if (!downloads && !(fmt === 'dae' && data.textures && data.textures.length)) {
+      const name = `${meta.base}.${fmt}`;
+      saveLocal(new Blob([fmt === 'dae' ? data.data : data]), name);
+      say('Saved ' + name + '.');
+      return;
+    }
+    const zip = new JSZip();
+    if (fmt === 'dae') {
+      zip.file(meta.base + '.dae', data.data);
+      (data.textures || []).forEach(t => zip.file(t.directory + t.name + '.' + t.ext, t.data));
+    } else zip.file(meta.base + '.' + fmt, data);
+    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    const zipName = `${meta.base}-${fmt}.zip`;
+    if (downloads) { say('Ready. Confirm the save…'); await downloads.save({ filename: zipName, data: blob }); } else saveLocal(blob, zipName);
+    say('Saved ' + meta.base + '-' + fmt + '.zip.');
+  } catch (e) {
+    if (e && e.code === 'declined') say('Save cancelled.');
+    else say('Conversion failed: ' + ((e && e.message) || 'unknown error'), true);
+  } finally { btn.disabled = false; }
+};
+</script>
+</body>
+</html>
